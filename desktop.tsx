@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useRef, useEffect, useCallback } from "react"
 import dynamic from "next/dynamic"
-import { FileSystemProvider } from '@/contexts/FileSystemContext'
+import { FileSystemProvider, useFileSystem } from '@/contexts/FileSystemContext'
 import { WallpaperProvider, useWallpaper } from '@/contexts/WallpaperContext'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 
@@ -31,7 +31,11 @@ import {
   AppWindow,
   Battery,
   Calendar,
+  Camera,
+  Clock,
+  Cloud,
   Code,
+  Edit,
   FileText,
   Folder,
   Globe,
@@ -39,6 +43,7 @@ import {
   HardDrive,
   Home,
   ImageIcon,
+  Info,
   Maximize2,
   Minimize2,
   Monitor,
@@ -47,7 +52,10 @@ import {
   Play,
   Search,
   Settings,
+  StickyNote,
   Terminal,
+  Thermometer,
+  Timer,
   Trash2,
   User,
   Volume2,
@@ -679,6 +687,960 @@ function DesktopContent() {
     )
   }
 
+  const CameraApp = () => {
+    const [isStreaming, setIsStreaming] = useState(false)
+    const [hasPermission, setHasPermission] = useState<boolean | null>(null)
+    const [error, setError] = useState<string | null>(null)
+    const [capturedPhotos, setCapturedPhotos] = useState<string[]>([])
+    const videoRef = useRef<HTMLVideoElement>(null)
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const { createFile, createDirectory } = useFileSystem()
+
+    const startCamera = async () => {
+      try {
+        setError(null)
+        setHasPermission(null) // Reset permission state
+
+        // First try with basic constraints
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        })
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+
+          // Set up multiple event handlers to ensure video starts
+          const handleVideoReady = () => {
+            setIsStreaming(true)
+            setHasPermission(true)
+          }
+
+          videoRef.current.onloadedmetadata = handleVideoReady
+          videoRef.current.oncanplay = handleVideoReady
+
+          // Force play the video
+          try {
+            await videoRef.current.play()
+            handleVideoReady()
+          } catch (playError) {
+            console.log('Auto-play failed, but stream is ready:', playError)
+            handleVideoReady()
+          }
+
+          // Fallback timeout - if nothing works after 3 seconds, assume it's working
+          setTimeout(() => {
+            if (hasPermission === null && videoRef.current?.srcObject) {
+              console.log('Fallback: assuming camera is working')
+              handleVideoReady()
+            }
+          }, 3000)
+        }
+      } catch (err) {
+        console.error('Camera access error:', err)
+        setHasPermission(false)
+        setIsStreaming(false)
+        if (err instanceof Error) {
+          if (err.name === 'NotAllowedError') {
+            setError('Camera access denied. Please allow camera permissions and try again.')
+          } else if (err.name === 'NotFoundError') {
+            setError('No camera found on this device.')
+          } else if (err.name === 'NotReadableError') {
+            setError('Camera is already in use by another application.')
+          } else {
+            setError('Failed to access camera. Please check your camera settings.')
+          }
+        }
+      }
+    }
+
+    const stopCamera = () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream
+        stream.getTracks().forEach(track => track.stop())
+        videoRef.current.srcObject = null
+        setIsStreaming(false)
+      }
+    }
+
+    const capturePhoto = () => {
+      if (videoRef.current && canvasRef.current && isStreaming) {
+        const canvas = canvasRef.current
+        const video = videoRef.current
+        const context = canvas.getContext('2d')
+
+        if (context && video.videoWidth > 0 && video.videoHeight > 0) {
+          // Set canvas dimensions to match video
+          canvas.width = video.videoWidth
+          canvas.height = video.videoHeight
+
+          // Flip the image horizontally to match the mirrored video display
+          context.scale(-1, 1)
+          context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height)
+          context.setTransform(1, 0, 0, 1, 0, 0) // Reset transform
+
+          const imageData = canvas.toDataURL('image/jpeg', 0.9)
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+          const filename = `photo-${timestamp}.jpg`
+
+          // Create Photos directory if it doesn't exist
+          try {
+            createDirectory('/home/user/Pictures')
+            createDirectory('/home/user/Pictures/Camera')
+          } catch (e) {
+            // Directory might already exist
+          }
+
+          // Save to file system (simplified - in real app would save binary data)
+          createFile(`/home/user/Pictures/Camera/${filename}`, `Camera photo captured at ${new Date().toLocaleString()}`)
+
+          setCapturedPhotos(prev => [imageData, ...prev.slice(0, 9)]) // Keep only last 10 photos
+
+          // Add notification
+          setNotifications((prev) => [
+            ...prev,
+            {
+              id: Date.now(),
+              type: "success",
+              title: "Photo Captured",
+              message: `Saved as ${filename}`,
+              timestamp: "Just now",
+            },
+          ])
+
+          // Flash effect
+          const flashDiv = document.createElement('div')
+          flashDiv.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            z-index: 9999;
+            pointer-events: none;
+            opacity: 0.8;
+          `
+          document.body.appendChild(flashDiv)
+          setTimeout(() => {
+            document.body.removeChild(flashDiv)
+          }, 100)
+        }
+      }
+    }
+
+    useEffect(() => {
+      return () => {
+        stopCamera()
+      }
+    }, [])
+
+    return (
+      <div className="h-full bg-gradient-to-br from-gray-900 to-black text-white">
+        <div className="p-4 h-full flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold">Camera</h1>
+            <div className="flex gap-2">
+              {!isStreaming ? (
+                <>
+                  <Button onClick={startCamera} className="bg-green-600 hover:bg-green-700">
+                    <Camera className="w-4 h-4 mr-2" />
+                    Start Camera
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        // Ultra-simple camera test
+                        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+                        if (videoRef.current) {
+                          videoRef.current.srcObject = stream
+                          videoRef.current.play()
+                          setIsStreaming(true)
+                          setHasPermission(true)
+                          setError(null)
+                        }
+                      } catch (err) {
+                        setError(`Camera test failed: ${err}`)
+                        setHasPermission(false)
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="bg-blue-600/20 border-blue-400 text-blue-200 hover:bg-blue-600/30"
+                  >
+                    Test
+                  </Button>
+                </>
+              ) : (
+                <Button onClick={stopCamera} variant="destructive">
+                  Stop Camera
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 flex gap-4">
+            {/* Camera Preview */}
+            <div className="flex-1 bg-black rounded-xl overflow-hidden relative">
+              {hasPermission === false || error ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <Camera className="w-24 h-24 mx-auto mb-4 text-gray-400" />
+                    <h3 className="text-xl font-semibold mb-2">Camera Access Required</h3>
+                    <p className="text-gray-400 mb-4">{error || 'Please allow camera access to continue'}</p>
+                    <Button onClick={startCamera} className="bg-blue-600 hover:bg-blue-700">
+                      Try Again
+                    </Button>
+                  </div>
+                </div>
+              ) : hasPermission === null && !isStreaming ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
+                    <h3 className="text-xl font-semibold mb-2">Starting Camera...</h3>
+                    <p className="text-gray-400">Please allow camera access when prompted</p>
+                  </div>
+                </div>
+              ) : isStreaming ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                    style={{ transform: 'scaleX(-1)' }} // Mirror the video for selfie effect
+                  />
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+                    <Button
+                      onClick={capturePhoto}
+                      size="lg"
+                      className="w-16 h-16 rounded-full bg-white hover:bg-gray-100 text-black shadow-lg"
+                    >
+                      <Camera className="w-8 h-8" />
+                    </Button>
+                  </div>
+                  {/* Camera controls overlay */}
+                  <div className="absolute top-4 right-4 flex gap-2">
+                    <Button
+                      onClick={stopCamera}
+                      size="sm"
+                      variant="destructive"
+                      className="bg-red-600/80 hover:bg-red-700/80 backdrop-blur-sm"
+                    >
+                      Stop
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <Camera className="w-24 h-24 mx-auto mb-4 text-gray-400" />
+                    <h3 className="text-xl font-semibold mb-2">Camera Ready</h3>
+                    <p className="text-gray-400">Click "Start Camera" to begin</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Captured Photos */}
+            <div className="w-64 bg-gray-800 rounded-xl p-4">
+              <h3 className="font-semibold mb-4">Recent Photos ({capturedPhotos.length})</h3>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {capturedPhotos.length === 0 ? (
+                  <p className="text-gray-400 text-sm">No photos captured yet</p>
+                ) : (
+                  capturedPhotos.map((photo, index) => (
+                    <div key={index} className="bg-gray-700 rounded-lg overflow-hidden">
+                      <img
+                        src={photo}
+                        alt={`Captured photo ${index + 1}`}
+                        className="w-full h-32 object-cover"
+                      />
+                      <div className="p-2">
+                        <p className="text-xs text-gray-300">Photo {index + 1}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <canvas ref={canvasRef} className="hidden" />
+        </div>
+      </div>
+    )
+  }
+
+  const TextEditorApp = () => {
+    const [content, setContent] = useState('')
+    const [filename, setFilename] = useState('untitled.txt')
+    const [isModified, setIsModified] = useState(false)
+    const [fontSize, setFontSize] = useState(14)
+    const { createFile, readFile, updateFile } = useFileSystem()
+
+    const handleSave = () => {
+      const path = `/home/user/Documents/${filename}`
+      if (content.trim()) {
+        createFile(path, content)
+        setIsModified(false)
+        setNotifications((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            type: "success",
+            title: "File Saved",
+            message: `Saved as ${filename}`,
+            timestamp: "Just now",
+          },
+        ])
+      }
+    }
+
+    const handleOpen = () => {
+      const path = `/home/user/Documents/${filename}`
+      const fileContent = readFile(path)
+      if (fileContent !== null) {
+        setContent(fileContent)
+        setIsModified(false)
+      }
+    }
+
+    const handleContentChange = (value: string) => {
+      setContent(value)
+      setIsModified(true)
+    }
+
+    return (
+      <div className="h-full bg-white flex flex-col">
+        {/* Toolbar */}
+        <div className="border-b border-gray-200 p-3 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-semibold text-gray-800">Text Editor</h1>
+            <div className="flex items-center gap-2">
+              <Input
+                value={filename}
+                onChange={(e) => setFilename(e.target.value)}
+                className="w-48 h-8 text-sm"
+                placeholder="filename.txt"
+              />
+              {isModified && <span className="text-orange-500 text-sm">•</span>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={handleOpen} variant="outline" size="sm">
+              <Folder className="w-4 h-4 mr-1" />
+              Open
+            </Button>
+            <Button onClick={handleSave} size="sm" className="bg-blue-600 hover:bg-blue-700">
+              <FileText className="w-4 h-4 mr-1" />
+              Save
+            </Button>
+          </div>
+        </div>
+
+        {/* Editor */}
+        <div className="flex-1 p-4">
+          <textarea
+            value={content}
+            onChange={(e) => handleContentChange(e.target.value)}
+            className="w-full h-full resize-none border border-gray-300 rounded-lg p-4 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            style={{ fontSize: `${fontSize}px` }}
+            placeholder="Start typing your text here..."
+          />
+        </div>
+
+        {/* Status Bar */}
+        <div className="border-t border-gray-200 p-2 flex items-center justify-between text-sm text-gray-600">
+          <div className="flex items-center gap-4">
+            <span>Lines: {content.split('\n').length}</span>
+            <span>Characters: {content.length}</span>
+            <span>Words: {content.trim() ? content.trim().split(/\s+/).length : 0}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span>Font Size:</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFontSize(Math.max(10, fontSize - 1))}
+              className="w-8 h-8 p-0"
+            >
+              -
+            </Button>
+            <span className="w-8 text-center">{fontSize}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFontSize(Math.min(24, fontSize + 1))}
+              className="w-8 h-8 p-0"
+            >
+              +
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const NotesApp = () => {
+    const [notes, setNotes] = useState([
+      { id: 1, title: 'Welcome to Notes', content: '# Welcome to Notes\n\nThis is a simple note-taking app with **Markdown** support!\n\n- Create new notes\n- Edit existing notes\n- Organize your thoughts\n\n*Happy note-taking!*', date: new Date() },
+      { id: 2, title: 'Ubuntu Tips', content: '# Ubuntu Tips\n\n## Terminal Commands\n- `ls` - list files\n- `cd` - change directory\n- `pwd` - print working directory\n\n## Shortcuts\n- Ctrl+Alt+T - Open terminal\n- Super key - Open activities', date: new Date(Date.now() - 86400000) }
+    ])
+    const [selectedNote, setSelectedNote] = useState<number | null>(1)
+    const [isEditing, setIsEditing] = useState(false)
+    const [editContent, setEditContent] = useState('')
+
+    const currentNote = notes.find(note => note.id === selectedNote)
+
+    const handleEdit = () => {
+      if (currentNote) {
+        setEditContent(currentNote.content)
+        setIsEditing(true)
+      }
+    }
+
+    const handleSave = () => {
+      if (selectedNote && editContent.trim()) {
+        setNotes(prev => prev.map(note =>
+          note.id === selectedNote
+            ? { ...note, content: editContent, date: new Date() }
+            : note
+        ))
+        setIsEditing(false)
+      }
+    }
+
+    const handleNewNote = () => {
+      const newNote = {
+        id: Date.now(),
+        title: 'New Note',
+        content: '# New Note\n\nStart writing your note here...',
+        date: new Date()
+      }
+      setNotes(prev => [newNote, ...prev])
+      setSelectedNote(newNote.id)
+    }
+
+    return (
+      <div className="h-full bg-gray-50 flex">
+        {/* Sidebar */}
+        <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+          <div className="p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-xl font-bold text-gray-800">Notes</h1>
+              <Button onClick={handleNewNote} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                <StickyNote className="w-4 h-4 mr-1" />
+                New
+              </Button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {notes.map(note => (
+              <div
+                key={note.id}
+                onClick={() => setSelectedNote(note.id)}
+                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                  selectedNote === note.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                }`}
+              >
+                <h3 className="font-medium text-gray-800 truncate">{note.title}</h3>
+                <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                  {note.content.replace(/[#*`]/g, '').substring(0, 100)}...
+                </p>
+                <p className="text-xs text-gray-400 mt-2">{note.date.toLocaleDateString()}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col">
+          {currentNote ? (
+            <>
+              <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-800">{currentNote.title}</h2>
+                <div className="flex gap-2">
+                  {!isEditing ? (
+                    <Button onClick={handleEdit} variant="outline" size="sm">
+                      <Edit className="w-4 h-4 mr-1" />
+                      Edit
+                    </Button>
+                  ) : (
+                    <>
+                      <Button onClick={() => setIsEditing(false)} variant="outline" size="sm">
+                        Cancel
+                      </Button>
+                      <Button onClick={handleSave} size="sm" className="bg-green-600 hover:bg-green-700">
+                        Save
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex-1 p-4">
+                {isEditing ? (
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="w-full h-full resize-none border border-gray-300 rounded-lg p-4 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Write your note in Markdown..."
+                  />
+                ) : (
+                  <div className="prose max-w-none">
+                    <pre className="whitespace-pre-wrap font-sans">{currentNote.content}</pre>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-gray-500">
+                <StickyNote className="w-16 h-16 mx-auto mb-4" />
+                <h3 className="text-lg font-medium">Select a note to view</h3>
+                <p>Choose a note from the sidebar or create a new one</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const WeatherApp = () => {
+    const [currentWeather, setCurrentWeather] = useState({
+      location: 'Ubuntu City',
+      temperature: 22,
+      condition: 'Partly Cloudy',
+      humidity: 65,
+      windSpeed: 12,
+      pressure: 1013
+    })
+
+    const forecast = [
+      { day: 'Today', high: 24, low: 18, condition: 'Partly Cloudy' },
+      { day: 'Tomorrow', high: 26, low: 20, condition: 'Sunny' },
+      { day: 'Wednesday', high: 23, low: 17, condition: 'Rainy' },
+      { day: 'Thursday', high: 25, low: 19, condition: 'Cloudy' },
+      { day: 'Friday', high: 27, low: 21, condition: 'Sunny' }
+    ]
+
+    return (
+      <div className="h-full bg-gradient-to-br from-blue-400 via-blue-500 to-blue-600 text-white">
+        <div className="p-6">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold mb-2">{currentWeather.location}</h1>
+            <div className="flex items-center justify-center mb-4">
+              <Cloud className="w-16 h-16 mr-4" />
+              <div>
+                <div className="text-5xl font-light">{currentWeather.temperature}°</div>
+                <div className="text-xl">{currentWeather.condition}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 mb-8">
+            <div className="bg-white/20 rounded-xl p-4 text-center">
+              <div className="text-2xl font-semibold">{currentWeather.humidity}%</div>
+              <div className="text-sm opacity-80">Humidity</div>
+            </div>
+            <div className="bg-white/20 rounded-xl p-4 text-center">
+              <div className="text-2xl font-semibold">{currentWeather.windSpeed} km/h</div>
+              <div className="text-sm opacity-80">Wind Speed</div>
+            </div>
+            <div className="bg-white/20 rounded-xl p-4 text-center">
+              <div className="text-2xl font-semibold">{currentWeather.pressure} hPa</div>
+              <div className="text-sm opacity-80">Pressure</div>
+            </div>
+          </div>
+
+          <div className="bg-white/10 rounded-xl p-4">
+            <h3 className="text-lg font-semibold mb-4">5-Day Forecast</h3>
+            <div className="space-y-3">
+              {forecast.map((day, index) => (
+                <div key={index} className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <Thermometer className="w-5 h-5 mr-3" />
+                    <span className="font-medium">{day.day}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-sm opacity-80 mr-4">{day.condition}</span>
+                    <span className="font-semibold">{day.high}° / {day.low}°</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const ClockApp = () => {
+    const [currentTime, setCurrentTime] = useState(new Date())
+    const [activeTab, setActiveTab] = useState<'clock' | 'timer' | 'stopwatch'>('clock')
+    const [timerMinutes, setTimerMinutes] = useState(5)
+    const [timerSeconds, setTimerSeconds] = useState(0)
+    const [timerActive, setTimerActive] = useState(false)
+    const [stopwatchTime, setStopwatchTime] = useState(0)
+    const [stopwatchActive, setStopwatchActive] = useState(false)
+
+    useEffect(() => {
+      const interval = setInterval(() => {
+        setCurrentTime(new Date())
+      }, 1000)
+      return () => clearInterval(interval)
+    }, [])
+
+    useEffect(() => {
+      let interval: NodeJS.Timeout
+      if (timerActive && (timerMinutes > 0 || timerSeconds > 0)) {
+        interval = setInterval(() => {
+          if (timerSeconds > 0) {
+            setTimerSeconds(prev => prev - 1)
+          } else if (timerMinutes > 0) {
+            setTimerMinutes(prev => prev - 1)
+            setTimerSeconds(59)
+          } else {
+            setTimerActive(false)
+            setNotifications((prev) => [
+              ...prev,
+              {
+                id: Date.now(),
+                type: "info",
+                title: "Timer Finished",
+                message: "Your timer has completed!",
+                timestamp: "Just now",
+              },
+            ])
+          }
+        }, 1000)
+      }
+      return () => clearInterval(interval)
+    }, [timerActive, timerMinutes, timerSeconds])
+
+    useEffect(() => {
+      let interval: NodeJS.Timeout
+      if (stopwatchActive) {
+        interval = setInterval(() => {
+          setStopwatchTime(prev => prev + 1)
+        }, 10)
+      }
+      return () => clearInterval(interval)
+    }, [stopwatchActive])
+
+    const formatTime = (time: Date) => {
+      return time.toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })
+    }
+
+    const formatStopwatch = (centiseconds: number) => {
+      const minutes = Math.floor(centiseconds / 6000)
+      const seconds = Math.floor((centiseconds % 6000) / 100)
+      const cs = centiseconds % 100
+      return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`
+    }
+
+    return (
+      <div className="h-full bg-gradient-to-br from-gray-900 to-black text-white">
+        <div className="p-6">
+          {/* Tabs */}
+          <div className="flex mb-8 bg-gray-800 rounded-xl p-1">
+            {(['clock', 'timer', 'stopwatch'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-2 px-4 rounded-lg capitalize transition-colors ${
+                  activeTab === tab ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Clock Tab */}
+          {activeTab === 'clock' && (
+            <div className="text-center">
+              <div className="mb-8">
+                <div className="text-6xl font-mono font-light mb-2">{formatTime(currentTime)}</div>
+                <div className="text-xl text-gray-400">{currentTime.toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-800 rounded-xl p-4">
+                  <Clock className="w-8 h-8 mx-auto mb-2" />
+                  <div className="text-lg font-semibold">Local Time</div>
+                  <div className="text-gray-400">UTC+0</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-4">
+                  <Globe className="w-8 h-8 mx-auto mb-2" />
+                  <div className="text-lg font-semibold">World Clock</div>
+                  <div className="text-gray-400">Multiple zones</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Timer Tab */}
+          {activeTab === 'timer' && (
+            <div className="text-center">
+              <div className="mb-8">
+                <div className="text-6xl font-mono font-light mb-4">
+                  {timerMinutes.toString().padStart(2, '0')}:{timerSeconds.toString().padStart(2, '0')}
+                </div>
+                <div className="flex items-center justify-center gap-4 mb-6">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTimerMinutes(Math.max(0, timerMinutes - 1))}
+                      disabled={timerActive}
+                    >
+                      -
+                    </Button>
+                    <span className="w-16 text-center">{timerMinutes}m</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTimerMinutes(Math.min(59, timerMinutes + 1))}
+                      disabled={timerActive}
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTimerSeconds(Math.max(0, timerSeconds - 1))}
+                      disabled={timerActive}
+                    >
+                      -
+                    </Button>
+                    <span className="w-16 text-center">{timerSeconds}s</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTimerSeconds(Math.min(59, timerSeconds + 1))}
+                      disabled={timerActive}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex gap-4 justify-center">
+                  <Button
+                    onClick={() => setTimerActive(!timerActive)}
+                    className={timerActive ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
+                    disabled={timerMinutes === 0 && timerSeconds === 0}
+                  >
+                    <Timer className="w-4 h-4 mr-2" />
+                    {timerActive ? 'Pause' : 'Start'}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setTimerActive(false)
+                      setTimerMinutes(5)
+                      setTimerSeconds(0)
+                    }}
+                    variant="outline"
+                  >
+                    Reset
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Stopwatch Tab */}
+          {activeTab === 'stopwatch' && (
+            <div className="text-center">
+              <div className="mb-8">
+                <div className="text-6xl font-mono font-light mb-6">
+                  {formatStopwatch(stopwatchTime)}
+                </div>
+                <div className="flex gap-4 justify-center">
+                  <Button
+                    onClick={() => setStopwatchActive(!stopwatchActive)}
+                    className={stopwatchActive ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
+                  >
+                    {stopwatchActive ? 'Stop' : 'Start'}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setStopwatchActive(false)
+                      setStopwatchTime(0)
+                    }}
+                    variant="outline"
+                  >
+                    Reset
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const SystemInfoApp = () => {
+    const systemInfo = {
+      os: 'Ubuntu 22.04 LTS',
+      kernel: '5.15.0-58-generic',
+      desktop: 'GNOME 42.5',
+      processor: 'Intel Core i7-12700K @ 3.60GHz',
+      memory: '16.0 GB',
+      graphics: 'NVIDIA GeForce RTX 3070',
+      storage: '1TB NVMe SSD',
+      uptime: '2 days, 14 hours, 32 minutes'
+    }
+
+    return (
+      <div className="h-full bg-gradient-to-br from-gray-100 to-gray-200">
+        <div className="p-6">
+          <div className="flex items-center mb-6">
+            <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center mr-4">
+              <span className="text-2xl font-bold text-white">U</span>
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">System Information</h1>
+              <p className="text-gray-600">Ubuntu OS Simulator</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Monitor className="w-5 h-5 mr-2" />
+                  System
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Operating System:</span>
+                  <span className="font-medium">{systemInfo.os}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Kernel:</span>
+                  <span className="font-medium">{systemInfo.kernel}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Desktop:</span>
+                  <span className="font-medium">{systemInfo.desktop}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Uptime:</span>
+                  <span className="font-medium">{systemInfo.uptime}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Zap className="w-5 h-5 mr-2" />
+                  Hardware
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Processor:</span>
+                  <span className="font-medium">{systemInfo.processor}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Memory:</span>
+                  <span className="font-medium">{systemInfo.memory}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Graphics:</span>
+                  <span className="font-medium">{systemInfo.graphics}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Storage:</span>
+                  <span className="font-medium">{systemInfo.storage}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Activity className="w-5 h-5 mr-2" />
+                  Performance
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <span className="text-gray-600">CPU Usage</span>
+                    <span className="font-medium">45%</span>
+                  </div>
+                  <Progress value={45} className="h-2" />
+                </div>
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <span className="text-gray-600">Memory Usage</span>
+                    <span className="font-medium">62%</span>
+                  </div>
+                  <Progress value={62} className="h-2" />
+                </div>
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <span className="text-gray-600">Disk Usage</span>
+                    <span className="font-medium">38%</span>
+                  </div>
+                  <Progress value={38} className="h-2" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Network className="w-5 h-5 mr-2" />
+                  Network
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Connection:</span>
+                  <span className="font-medium flex items-center">
+                    <Wifi className="w-4 h-4 mr-1" />
+                    WiFi Connected
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">IP Address:</span>
+                  <span className="font-medium">192.168.1.100</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Download:</span>
+                  <span className="font-medium">125 Mbps</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Upload:</span>
+                  <span className="font-medium">45 Mbps</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const SystemMonitorApp = () => {
     const [cpuUsage, setCpuUsage] = useState(45)
     const [memoryUsage, setMemoryUsage] = useState(62)
@@ -1043,6 +2005,42 @@ function DesktopContent() {
           icon: <Code className="w-6 h-6" />,
           color: "from-blue-600 to-blue-800",
           onClick: () => openApplication("vscode", "VS Code", <Code className="w-5 h-5" />, <VSCodeApp />),
+        },
+        {
+          name: "Camera",
+          icon: <Camera className="w-6 h-6" />,
+          color: "from-green-500 to-emerald-600",
+          onClick: () => openApplication("camera", "Camera", <Camera className="w-5 h-5" />, <CameraApp />),
+        },
+        {
+          name: "Text Editor",
+          icon: <Edit className="w-6 h-6" />,
+          color: "from-blue-500 to-cyan-600",
+          onClick: () => openApplication("texteditor", "Text Editor", <Edit className="w-5 h-5" />, <TextEditorApp />),
+        },
+        {
+          name: "Notes",
+          icon: <StickyNote className="w-6 h-6" />,
+          color: "from-yellow-500 to-orange-600",
+          onClick: () => openApplication("notes", "Notes", <StickyNote className="w-5 h-5" />, <NotesApp />),
+        },
+        {
+          name: "Weather",
+          icon: <Cloud className="w-6 h-6" />,
+          color: "from-blue-400 to-blue-600",
+          onClick: () => openApplication("weather", "Weather", <Cloud className="w-5 h-5" />, <WeatherApp />),
+        },
+        {
+          name: "Clock",
+          icon: <Clock className="w-6 h-6" />,
+          color: "from-gray-700 to-gray-900",
+          onClick: () => openApplication("clock", "Clock", <Clock className="w-5 h-5" />, <ClockApp />),
+        },
+        {
+          name: "System Info",
+          icon: <Info className="w-6 h-6" />,
+          color: "from-purple-500 to-indigo-600",
+          onClick: () => openApplication("systeminfo", "System Information", <Info className="w-5 h-5" />, <SystemInfoApp />),
         },
         {
           name: "Settings",
@@ -2234,6 +3232,42 @@ function DesktopContent() {
                       <Activity className="w-5 h-5" />,
                       <SystemMonitorApp />,
                     ),
+                },
+                {
+                  name: "Camera",
+                  icon: <Camera className="w-8 h-8" />,
+                  color: "from-green-500 to-emerald-600",
+                  onClick: () => openApplication("camera", "Camera", <Camera className="w-5 h-5" />, <CameraApp />),
+                },
+                {
+                  name: "Text Editor",
+                  icon: <Edit className="w-8 h-8" />,
+                  color: "from-blue-500 to-cyan-600",
+                  onClick: () => openApplication("texteditor", "Text Editor", <Edit className="w-5 h-5" />, <TextEditorApp />),
+                },
+                {
+                  name: "Notes",
+                  icon: <StickyNote className="w-8 h-8" />,
+                  color: "from-yellow-500 to-orange-600",
+                  onClick: () => openApplication("notes", "Notes", <StickyNote className="w-5 h-5" />, <NotesApp />),
+                },
+                {
+                  name: "Weather",
+                  icon: <Cloud className="w-8 h-8" />,
+                  color: "from-blue-400 to-blue-600",
+                  onClick: () => openApplication("weather", "Weather", <Cloud className="w-5 h-5" />, <WeatherApp />),
+                },
+                {
+                  name: "Clock",
+                  icon: <Clock className="w-8 h-8" />,
+                  color: "from-gray-700 to-gray-900",
+                  onClick: () => openApplication("clock", "Clock", <Clock className="w-5 h-5" />, <ClockApp />),
+                },
+                {
+                  name: "System Info",
+                  icon: <Info className="w-8 h-8" />,
+                  color: "from-purple-500 to-indigo-600",
+                  onClick: () => openApplication("systeminfo", "System Information", <Info className="w-5 h-5" />, <SystemInfoApp />),
                 },
               ]
                 .filter((app) => app.name.toLowerCase().includes(searchQuery.toLowerCase()))
