@@ -9,7 +9,10 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 
 // Dynamically import components to avoid SSR issues
 const XTerminal = dynamic(() => import('@/components/XTerminal'), { ssr: false })
-const VSCodeEditor = dynamic(() => import('@/components/VSCodeEditor'), { ssr: false })
+const VSCodeEditor = dynamic(() => import('@/components/VSCodeEditor'), {
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-full">Loading editor...</div>
+})
 const WallpaperSettings = dynamic(() => import('@/components/WallpaperSettings'), { ssr: false })
 const AuthScreen = dynamic(() => import('@/components/auth/AuthScreen'), { ssr: false })
 import { Button } from "@/components/ui/button"

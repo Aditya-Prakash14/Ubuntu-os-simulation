@@ -26,7 +26,7 @@ The Ubuntu OS Simulator is a feature-rich web application that recreates the Ubu
 - **Real-time form validation** with visual feedback
 - **Welcome animation sequence** with personalized greetings
 - **Security features** including account lockout and password strength requirements
-- **Demo account** for quick access (`demo` / `demo123`)
+- **Secure user accounts** with email verification and OAuth support
 
 ### 💻 Real Terminal Experience
 - **xterm.js integration** for authentic terminal emulation
@@ -152,8 +152,8 @@ npm start
 ### Getting Started
 
 1. **Authentication**
-   - Use demo credentials: Username `demo`, Password `demo123`
-   - Or create a new account through the multi-step registration process
+   - Create a new account through the comprehensive registration process
+   - Or sign in with existing credentials using email/password or OAuth providers
 
 2. **Welcome Animation**
    - Enjoy the Apple-inspired welcome sequence

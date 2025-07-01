@@ -35,9 +35,23 @@ const VSCodeEditor: React.FC<VSCodeEditorProps> = ({ className = '', username = 
   const [showSidebar, setShowSidebar] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/home/' + username, '/home/' + username + '/src']))
+  const [editorError, setEditorError] = useState<string | null>(null)
 
   // Use shared file system context
   const { readFile, updateFile, getNode } = useFileSystem()
+
+  // Error boundary for Monaco Editor
+  React.useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      if (event.message.includes('monaco') || event.message.includes('ChunkLoadError')) {
+        setEditorError('Failed to load Monaco Editor. Please refresh the page.')
+        event.preventDefault()
+      }
+    }
+
+    window.addEventListener('error', handleError)
+    return () => window.removeEventListener('error', handleError)
+  }, [])
   
   // Helper function to build file tree from shared file system
   const buildFileTree = (node: FileNode | null, path: string): { [key: string]: any } => {
@@ -239,13 +253,42 @@ const VSCodeEditor: React.FC<VSCodeEditorProps> = ({ className = '', username = 
 
         {/* Editor */}
         <div className="flex-1">
-          {activeFile ? (
+          {editorError ? (
+            <div className="flex items-center justify-center h-full text-red-500">
+              <div className="text-center">
+                <File className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg">Editor Error</p>
+                <p className="text-sm">{editorError}</p>
+                <Button
+                  onClick={() => setEditorError(null)}
+                  className="mt-4"
+                  variant="outline"
+                >
+                  Retry
+                </Button>
+              </div>
+            </div>
+          ) : activeFile ? (
             <Editor
               height="100%"
               language={getLanguageFromFileName(activeFile)}
               value={fileContents[activeFile] || ''}
               onChange={handleEditorChange}
               theme="vs-dark"
+              loading={
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <p>Loading Monaco Editor...</p>
+                  </div>
+                </div>
+              }
+              onMount={() => setEditorError(null)}
+              onValidate={(markers) => {
+                if (markers.length > 0) {
+                  console.log('Editor validation markers:', markers)
+                }
+              }}
               options={{
                 fontSize: 14,
                 minimap: { enabled: false },
