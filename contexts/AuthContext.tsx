@@ -68,36 +68,7 @@ export const useAuth = () => {
   return context
 }
 
-// Default demo user
-const createDemoUser = (): UserProfile => ({
-  id: 'demo-user-1',
-  firstName: 'Demo',
-  lastName: 'User',
-  username: 'demo',
-  email: 'demo@ubuntu.com',
-  phoneNumber: '+1 (555) 123-4567',
-  dateOfBirth: '1990-01-01',
-  profilePicture: '/placeholder-user.jpg',
-  bio: 'Welcome to Ubuntu OS Simulator! This is a demo account.',
-  location: 'San Francisco, CA',
-  website: 'https://ubuntu.com',
-  joinDate: new Date().toISOString(),
-  lastLogin: new Date().toISOString(),
-  isOnline: true,
-  preferences: {
-    theme: 'auto',
-    language: 'en-US',
-    timezone: 'America/Los_Angeles',
-    notifications: true,
-    privacy: 'public'
-  },
-  security: {
-    twoFactorEnabled: false,
-    lastPasswordChange: new Date().toISOString(),
-    loginAttempts: 0,
-    accountLocked: false
-  }
-})
+
 
 interface AuthProviderProps {
   children: React.ReactNode
@@ -105,11 +76,9 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
-  const [users, setUsers] = useState<UserProfile[]>([createDemoUser()])
+  const [users, setUsers] = useState<UserProfile[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [userPasswords] = useState<{ [userId: string]: string }>({
-    'demo-user-1': 'demo123'
-  })
+  const [userPasswords] = useState<{ [userId: string]: string }>({})
 
   const isAuthenticated = currentUser !== null
 
@@ -279,7 +248,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const verifyTwoFactor = async (code: string): Promise<boolean> => {
     await simulateDelay(500)
-    return code === '123456' // Demo code
+    return code === '123456' // Static verification code for simulation
   }
 
   const value: AuthContextType = {

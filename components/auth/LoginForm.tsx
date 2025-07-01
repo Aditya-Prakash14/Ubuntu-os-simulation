@@ -42,34 +42,8 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
     if (error) setError('')
   }
 
-  const fillDemoCredentials = () => {
-    setFormData({
-      username: 'demo',
-      password: 'demo123'
-    })
-    setError('')
-  }
-
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Demo Credentials Helper */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-blue-500/20 border border-blue-400/30 rounded-xl p-3 text-center"
-      >
-        <p className="text-blue-200 text-xs mb-2">Try the demo account:</p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={fillDemoCredentials}
-          className="bg-blue-500/20 border-blue-400/30 text-blue-200 hover:bg-blue-500/30 text-xs"
-        >
-          Use Demo Credentials
-        </Button>
-      </motion.div>
 
       {/* Error Message */}
       {error && (
